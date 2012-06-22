@@ -274,6 +274,8 @@ SimpleCepstrum::reset()
 SimpleCepstrum::FeatureSet
 SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timestamp)
 {
+    FeatureSet fs;
+
     int bs = m_blockSize;
     int hs = m_blockSize/2 + 1;
 
@@ -288,20 +290,15 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
     }
 
     double *cep = new double[bs];
-    double *discard0 = new double[bs];
-    double *discard1 = new double[bs];
-    for (int i = 0; i < bs; ++i) discard0[i] = 0.0;
-    fft(bs, true, logmag, discard0, cep, discard1);
-    delete[] discard0;
-    delete[] discard1;
+    double *discard = new double[bs];
+    fft(bs, true, logmag, 0, cep, discard);
+    delete[] discard;
 
     if (m_clamp) {
         for (int i = 0; i < bs; ++i) {
             if (cep[i] < 0) cep[i] = 0;
         }
     }
-
-    FeatureSet fs;
 
     int from = int(m_inputSampleRate / m_fmax);
     int to = int(m_inputSampleRate / m_fmin);
