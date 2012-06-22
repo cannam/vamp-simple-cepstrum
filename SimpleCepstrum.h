@@ -50,6 +50,15 @@ protected:
     float m_fmax;
     bool m_clamp;
 
+    enum Method {
+        InverseSymmetric,
+        InverseAsymmetric,
+        ForwardMagnitude,
+        ForwardDifference
+    };
+
+    Method m_method;
+
 //    mutable int m_f0Output;
     mutable int m_rawOutput;
     mutable int m_varOutput;

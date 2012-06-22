@@ -17,7 +17,8 @@ SimpleCepstrum::SimpleCepstrum(float inputSampleRate) :
     m_blockSize(1024),
     m_fmin(50),
     m_fmax(1000),
-    m_clamp(false)
+    m_clamp(false),
+    m_method(InverseSymmetric)
 {
 }
 
@@ -125,6 +126,20 @@ SimpleCepstrum::getParameterDescriptors() const
     d.isQuantized = false;
     list.push_back(d);
 
+    d.identifier = "method";
+    d.name = "Cepstrum transform method";
+    d.unit = "";
+    d.minValue = 0;
+    d.maxValue = 3;
+    d.defaultValue = 0;
+    d.isQuantized = true;
+    d.quantizeStep = 1;
+    d.valueNames.push_back("Inverse symmetric");
+    d.valueNames.push_back("Inverse asymmetric");
+    d.valueNames.push_back("Forward magnitude");
+    d.valueNames.push_back("Forward difference");
+    list.push_back(d);
+
     d.identifier = "clamp";
     d.name = "Clamp negative values in cepstrum at zero";
     d.unit = "";
@@ -133,6 +148,7 @@ SimpleCepstrum::getParameterDescriptors() const
     d.defaultValue = 0;
     d.isQuantized = true;
     d.quantizeStep = 1;
+    d.valueNames.clear();
     list.push_back(d);
 
     return list;
@@ -144,6 +160,7 @@ SimpleCepstrum::getParameter(string identifier) const
     if (identifier == "fmin") return m_fmin;
     else if (identifier == "fmax") return m_fmax;
     else if (identifier == "clamp") return (m_clamp ? 1 : 0);
+    else if (identifier == "method") return (int)m_method;
     else return 0.f;
 }
 
@@ -153,6 +170,7 @@ SimpleCepstrum::setParameter(string identifier, float value)
     if (identifier == "fmin") m_fmin = value;
     else if (identifier == "fmax") m_fmax = value;
     else if (identifier == "clamp") m_clamp = (value > 0.5);
+    else if (identifier == "method") m_method = Method(int(value + 0.5));
 }
 
 SimpleCepstrum::ProgramList
@@ -309,18 +327,54 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
     int hs = m_blockSize/2 + 1;
 
     double *logmag = new double[bs];
+
     for (int i = 0; i < hs; ++i) {
+
         double mag = sqrt(inputBuffers[0][i*2  ] * inputBuffers[0][i*2  ] +
                           inputBuffers[0][i*2+1] * inputBuffers[0][i*2+1]);
-        logmag[i] = log(mag + 0.00000001);
-        if (i > 0) {
-            logmag[bs - i] = logmag[i];
+        double lm = log(mag + 0.00000001);
+
+        switch (m_method) {
+        case InverseSymmetric:
+            logmag[i] = lm;
+            if (i > 0) logmag[bs - i] = lm;
+            break;
+        case InverseAsymmetric:
+            logmag[i] = lm;
+            if (i > 0) logmag[bs - i] = 0;
+            break;
+        case ForwardMagnitude:
+        case ForwardDifference:
+            logmag[bs/2 + i - 1] = lm;
+            if (i < hs-1) {
+                logmag[bs/2 - i - 1] = lm;
+            }
+            break;
         }
     }
 
     double *cep = new double[bs];
-    double *discard = new double[bs];
-    fft(bs, true, logmag, 0, cep, discard);
+    double *io = new double[bs];
+
+    if (m_method == InverseSymmetric ||
+        m_method == InverseAsymmetric) {
+
+        fft(bs, true, logmag, 0, cep, io);
+
+    } else {
+
+        fft(bs, false, logmag, 0, cep, io);
+
+        if (m_method == ForwardDifference) {
+            for (int i = 0; i < hs; ++i) {
+                cep[i] = fabs(io[i]) - fabs(cep[i]);
+            }
+        } else {
+            for (int i = 0; i < hs; ++i) {
+                cep[i] = sqrt(cep[i]*cep[i] + io[i]*io[i]);
+            }
+        }
+    }
 
     if (m_clamp) {
         for (int i = 0; i < bs; ++i) {
@@ -401,7 +455,7 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
     for (int i = from; i < bs; ++i) {
         cep[i] = 0;
     }
-    fft(bs, false, cep, 0, logmag, discard);
+    fft(bs, false, cep, 0, logmag, io);
     for (int i = 0; i < hs; ++i) {
         logmag[i] = exp(logmag[i]);
     }
@@ -420,7 +474,7 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
     }
     fs[m_esOutput].push_back(es);
 
-    delete[] discard;
+    delete[] io;
     delete[] logmag;
     delete[] cep;
 
