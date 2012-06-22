@@ -50,13 +50,15 @@ protected:
     float m_fmax;
     bool m_clamp;
 
-    mutable int m_f0Output;
+//    mutable int m_f0Output;
     mutable int m_rawOutput;
     mutable int m_varOutput;
     mutable int m_p2mOutput;
     mutable int m_cepOutput;
     mutable int m_pvOutput;
     mutable int m_amOutput;
+    mutable int m_envOutput;
+    mutable int m_esOutput;
 
     void fft(unsigned int n, bool inverse,
              double *ri, double *ii, double *ro, double *io);

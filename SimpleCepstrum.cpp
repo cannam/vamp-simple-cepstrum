@@ -40,7 +40,7 @@ SimpleCepstrum::getName() const
 string
 SimpleCepstrum::getDescription() const
 {
-    return "Return simple cepstral data from DFT bins";
+    return "Return simple cepstral data from DFT bins. This plugin is intended for casual inspection of cepstral data. It returns a lot of different sorts of data and is quite slow; it's not a good way to extract a single feature rapidly.";
 }
 
 string
@@ -181,6 +181,7 @@ SimpleCepstrum::getOutputDescriptors() const
     int n = 0;
 
     OutputDescriptor d;
+
     d.identifier = "f0";
     d.name = "Estimated fundamental frequency";
     d.description = "";
@@ -193,11 +194,14 @@ SimpleCepstrum::getOutputDescriptors() const
     d.isQuantized = false;
     d.sampleType = OutputDescriptor::OneSamplePerStep;
     d.hasDuration = false;
+/*
     m_f0Output = n++;
     outputs.push_back(d);
+*/
 
     d.identifier = "raw_cepstral_peak";
     d.name = "Frequency corresponding to raw cepstral peak";
+    d.description = "Return the frequency whose period corresponds to the quefrency with the maximum value within the specified range of the cepstrum";
     d.unit = "Hz";
     m_rawOutput = n++;
     outputs.push_back(d);
@@ -205,24 +209,28 @@ SimpleCepstrum::getOutputDescriptors() const
     d.identifier = "variance";
     d.name = "Variance of cepstral bins in range";
     d.unit = "";
+    d.description = "Return the variance of bin values within the specified range of the cepstrum";
     m_varOutput = n++;
     outputs.push_back(d);
 
     d.identifier = "peak";
     d.name = "Peak value";
     d.unit = "";
+    d.description = "Return the value found in the maximum-valued bin within the specified range of the cepstrum";
     m_pvOutput = n++;
     outputs.push_back(d);
 
     d.identifier = "peak_to_mean";
     d.name = "Peak-to-mean distance";
     d.unit = "";
+    d.description = "Return the difference between maximum and mean bin values within the specified range of the cepstrum";
     m_p2mOutput = n++;
     outputs.push_back(d);
 
     d.identifier = "cepstrum";
     d.name = "Cepstrum";
     d.unit = "";
+    d.description = "The unprocessed cepstrum bins within the specified range";
 
     int from = int(m_inputSampleRate / m_fmax);
     int to = int(m_inputSampleRate / m_fmin);
@@ -233,7 +241,7 @@ SimpleCepstrum::getOutputDescriptors() const
     for (int i = from; i <= to; ++i) {
         float freq = m_inputSampleRate / i;
         char buffer[10];
-        sprintf(buffer, "%.2f", freq);
+        sprintf(buffer, "%.2f Hz", freq);
         d.binNames.push_back(buffer);
     }
 
@@ -243,7 +251,28 @@ SimpleCepstrum::getOutputDescriptors() const
 
     d.identifier = "am";
     d.name = "Cepstrum bins relative to mean";
+    d.description = "The cepstrum bins within the specified range, expressed as a value relative to the mean bin value in the range, with values below the mean clamped to zero";
     m_amOutput = n++;
+    outputs.push_back(d);
+
+    d.identifier = "env";
+    d.name = "Spectral envelope";
+    d.description = "Envelope calculated from the cepstral values below the specified minimum";
+    d.binCount = m_blockSize/2 + 1;
+    d.binNames.clear();
+    for (int i = 0; i < d.binCount; ++i) {
+        float freq = (m_inputSampleRate / m_blockSize) * i;
+        char buffer[10];
+        sprintf(buffer, "%.2f Hz", freq);
+        d.binNames.push_back(buffer);
+    }
+    m_envOutput = n++;
+    outputs.push_back(d);
+
+    d.identifier = "es";
+    d.name = "Spectrum without envelope";
+    d.description = "Magnitude of spectrum values divided by calculated envelope values, to deconvolve the envelope";
+    m_esOutput = n++;
     outputs.push_back(d);
 
     return outputs;
@@ -283,7 +312,7 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
     for (int i = 0; i < hs; ++i) {
         double mag = sqrt(inputBuffers[0][i*2  ] * inputBuffers[0][i*2  ] +
                           inputBuffers[0][i*2+1] * inputBuffers[0][i*2+1]);
-        logmag[i] = log(mag + 0.000001);
+        logmag[i] = log(mag + 0.00000001);
         if (i > 0) {
             logmag[bs - i] = logmag[i];
         }
@@ -292,7 +321,6 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
     double *cep = new double[bs];
     double *discard = new double[bs];
     fft(bs, true, logmag, 0, cep, discard);
-    delete[] discard;
 
     if (m_clamp) {
         for (int i = 0; i < bs; ++i) {
@@ -363,6 +391,36 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
     }
     fs[m_amOutput].push_back(am);
 
+    // destructively wipe the higher cepstral bins in order to
+    // calculate the envelope
+    cep[0] /= 2;
+    cep[from-1] /= 2;
+    for (int i = 0; i < from; ++i) {
+        cep[i] /= bs; 
+    }
+    for (int i = from; i < bs; ++i) {
+        cep[i] = 0;
+    }
+    fft(bs, false, cep, 0, logmag, discard);
+    for (int i = 0; i < hs; ++i) {
+        logmag[i] = exp(logmag[i]);
+    }
+    Feature env;
+    for (int i = 0; i < hs; ++i) {
+        env.values.push_back(logmag[i]);
+    }
+    fs[m_envOutput].push_back(env);
+
+    Feature es;
+    for (int i = 0; i < hs; ++i) {
+        double re = inputBuffers[0][i*2  ] / logmag[i];
+        double im = inputBuffers[0][i*2+1] / logmag[i];
+        double mag = sqrt(re*re + im*im);
+        es.values.push_back(mag);
+    }
+    fs[m_esOutput].push_back(es);
+
+    delete[] discard;
     delete[] logmag;
     delete[] cep;
 
