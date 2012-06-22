@@ -53,6 +53,8 @@ protected:
     enum Method {
         InverseSymmetric,
         InverseAsymmetric,
+        InverseComplex,
+        ForwardPower,
         ForwardMagnitude,
         ForwardDifference
     };

@@ -7,6 +7,7 @@
 
 #include <cstdio>
 #include <cmath>
+#include <complex>
 
 using std::string;
 
@@ -130,12 +131,14 @@ SimpleCepstrum::getParameterDescriptors() const
     d.name = "Cepstrum transform method";
     d.unit = "";
     d.minValue = 0;
-    d.maxValue = 3;
+    d.maxValue = 5;
     d.defaultValue = 0;
     d.isQuantized = true;
     d.quantizeStep = 1;
     d.valueNames.push_back("Inverse symmetric");
     d.valueNames.push_back("Inverse asymmetric");
+    d.valueNames.push_back("Inverse complex");
+    d.valueNames.push_back("Forward power");
     d.valueNames.push_back("Forward magnitude");
     d.valueNames.push_back("Forward difference");
     list.push_back(d);
@@ -326,54 +329,90 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
     int bs = m_blockSize;
     int hs = m_blockSize/2 + 1;
 
-    double *logmag = new double[bs];
-
-    for (int i = 0; i < hs; ++i) {
-
-        double mag = sqrt(inputBuffers[0][i*2  ] * inputBuffers[0][i*2  ] +
-                          inputBuffers[0][i*2+1] * inputBuffers[0][i*2+1]);
-        double lm = log(mag + 0.00000001);
-
-        switch (m_method) {
-        case InverseSymmetric:
-            logmag[i] = lm;
-            if (i > 0) logmag[bs - i] = lm;
-            break;
-        case InverseAsymmetric:
-            logmag[i] = lm;
-            if (i > 0) logmag[bs - i] = 0;
-            break;
-        case ForwardMagnitude:
-        case ForwardDifference:
-            logmag[bs/2 + i - 1] = lm;
-            if (i < hs-1) {
-                logmag[bs/2 - i - 1] = lm;
-            }
-            break;
-        }
-    }
-
     double *cep = new double[bs];
     double *io = new double[bs];
 
-    if (m_method == InverseSymmetric ||
-        m_method == InverseAsymmetric) {
+    if (m_method != InverseComplex) {
 
-        fft(bs, true, logmag, 0, cep, io);
+        double *logmag = new double[bs];
+        
+        for (int i = 0; i < hs; ++i) {
 
-    } else {
+            double power =
+                inputBuffers[0][i*2  ] * inputBuffers[0][i*2  ] +
+                inputBuffers[0][i*2+1] * inputBuffers[0][i*2+1];
 
-        fft(bs, false, logmag, 0, cep, io);
+            double lm;
 
-        if (m_method == ForwardDifference) {
-            for (int i = 0; i < hs; ++i) {
-                cep[i] = fabs(io[i]) - fabs(cep[i]);
+            if (m_method == ForwardPower) {
+                lm = log(power + 0.00000001);
+            } else {
+                double mag = sqrt(power);
+                lm = log(mag + 0.00000001);
             }
-        } else {
-            for (int i = 0; i < hs; ++i) {
-                cep[i] = sqrt(cep[i]*cep[i] + io[i]*io[i]);
+
+            switch (m_method) {
+            case InverseSymmetric:
+                logmag[i] = lm;
+                if (i > 0) logmag[bs - i] = lm;
+                break;
+            case InverseAsymmetric:
+                logmag[i] = lm;
+                if (i > 0) logmag[bs - i] = 0;
+                break;
+            default:
+                logmag[bs/2 + i - 1] = lm;
+                if (i < hs-1) {
+                    logmag[bs/2 - i - 1] = lm;
+                }
+                break;
             }
         }
+
+        if (m_method == InverseSymmetric ||
+            m_method == InverseAsymmetric) {
+
+            fft(bs, true, logmag, 0, cep, io);
+
+        } else {
+
+            fft(bs, false, logmag, 0, cep, io);
+
+            if (m_method == ForwardDifference) {
+                for (int i = 0; i < hs; ++i) {
+                    cep[i] = fabs(io[i]) - fabs(cep[i]);
+                }
+            } else {
+                for (int i = 0; i < hs; ++i) {
+                    cep[i] = sqrt(cep[i]*cep[i] + io[i]*io[i]);
+                }
+            }
+        }
+
+        delete[] logmag;
+
+    } else { // InverseComplex
+
+        double *ri = new double[bs];
+        double *ii = new double[bs];
+        
+        for (int i = 0; i < hs; ++i) {
+            double re = inputBuffers[0][i*2];
+            double im = inputBuffers[0][i*2+1];
+            std::complex<double> c(re, im);
+            std::complex<double> clog = std::log(c);
+            ri[i] = clog.real();
+            ii[i] = clog.imag();
+            if (i > 0) {
+                ri[bs - i] = ri[i];
+                ii[bs - i] = -ii[i];
+            }
+        }
+
+        fft(bs, true, ri, ii, cep, io);
+
+        delete[] ri;
+        delete[] ii;
     }
 
     if (m_clamp) {
@@ -447,6 +486,7 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
 
     // destructively wipe the higher cepstral bins in order to
     // calculate the envelope
+    double *env = new double[bs];
     cep[0] /= 2;
     cep[from-1] /= 2;
     for (int i = 0; i < from; ++i) {
@@ -455,27 +495,27 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
     for (int i = from; i < bs; ++i) {
         cep[i] = 0;
     }
-    fft(bs, false, cep, 0, logmag, io);
+    fft(bs, false, cep, 0, env, io);
     for (int i = 0; i < hs; ++i) {
-        logmag[i] = exp(logmag[i]);
+        env[i] = exp(env[i]);
     }
-    Feature env;
+    Feature envf;
     for (int i = 0; i < hs; ++i) {
-        env.values.push_back(logmag[i]);
+        envf.values.push_back(env[i]);
     }
-    fs[m_envOutput].push_back(env);
+    fs[m_envOutput].push_back(envf);
 
     Feature es;
     for (int i = 0; i < hs; ++i) {
-        double re = inputBuffers[0][i*2  ] / logmag[i];
-        double im = inputBuffers[0][i*2+1] / logmag[i];
+        double re = inputBuffers[0][i*2  ] / env[i];
+        double im = inputBuffers[0][i*2+1] / env[i];
         double mag = sqrt(re*re + im*im);
         es.values.push_back(mag);
     }
     fs[m_esOutput].push_back(es);
 
+    delete[] env;
     delete[] io;
-    delete[] logmag;
     delete[] cep;
 
     return fs;
