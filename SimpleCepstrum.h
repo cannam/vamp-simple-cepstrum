@@ -48,13 +48,13 @@ protected:
     size_t m_blockSize;
     float m_fmin;
     float m_fmax;
+    int m_histlen;
     bool m_clamp;
 
     enum Method {
         InverseSymmetric,
         InverseAsymmetric,
         InverseComplex,
-        ForwardPower,
         ForwardMagnitude,
         ForwardDifference
     };
@@ -62,17 +62,29 @@ protected:
     Method m_method;
 
 //    mutable int m_f0Output;
-    mutable int m_rawOutput;
+    mutable int m_pkOutput;
     mutable int m_varOutput;
     mutable int m_p2mOutput;
+    mutable int m_p2rOutput;
     mutable int m_cepOutput;
     mutable int m_pvOutput;
     mutable int m_amOutput;
     mutable int m_envOutput;
     mutable int m_esOutput;
 
+    int m_binFrom;
+    int m_binTo;
+    int m_bins; // count of "interesting" bins, those returned in m_cepOutput
+
+    double **m_history;
+    
+    void filter(const double *in, double *out);
     void fft(unsigned int n, bool inverse,
              double *ri, double *ii, double *ro, double *io);
+
+    void addStatisticalOutputs(FeatureSet &fs, const double *data);
+    void addEnvelopeOutputs(FeatureSet &fs, const float *const *inputBuffers,
+                            const double *raw);
 };
 
 #endif

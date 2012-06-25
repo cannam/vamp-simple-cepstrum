@@ -18,13 +18,24 @@ SimpleCepstrum::SimpleCepstrum(float inputSampleRate) :
     m_blockSize(1024),
     m_fmin(50),
     m_fmax(1000),
+    m_histlen(3),
     m_clamp(false),
-    m_method(InverseSymmetric)
+    m_method(InverseSymmetric),
+    m_binFrom(0),
+    m_binTo(0),
+    m_bins(0),
+    m_history(0)
 {
 }
 
 SimpleCepstrum::~SimpleCepstrum()
 {
+    if (m_history) {
+        for (int i = 0; i < m_histlen; ++i) {
+            delete[] m_history[i];
+        }
+        delete[] m_history;
+    }
 }
 
 string
@@ -127,18 +138,28 @@ SimpleCepstrum::getParameterDescriptors() const
     d.isQuantized = false;
     list.push_back(d);
 
+    d.identifier = "histlen";
+    d.name = "Mean filter history length";
+    d.description = "";
+    d.unit = "";
+    d.minValue = 1;
+    d.maxValue = 10;
+    d.defaultValue = 3;
+    d.isQuantized = true;
+    d.quantizeStep = 1;
+    list.push_back(d);
+
     d.identifier = "method";
     d.name = "Cepstrum transform method";
     d.unit = "";
     d.minValue = 0;
-    d.maxValue = 5;
+    d.maxValue = 4;
     d.defaultValue = 0;
     d.isQuantized = true;
     d.quantizeStep = 1;
     d.valueNames.push_back("Inverse symmetric");
     d.valueNames.push_back("Inverse asymmetric");
     d.valueNames.push_back("Inverse complex");
-    d.valueNames.push_back("Forward power");
     d.valueNames.push_back("Forward magnitude");
     d.valueNames.push_back("Forward difference");
     list.push_back(d);
@@ -162,6 +183,7 @@ SimpleCepstrum::getParameter(string identifier) const
 {
     if (identifier == "fmin") return m_fmin;
     else if (identifier == "fmax") return m_fmax;
+    else if (identifier == "histlen") return m_histlen;
     else if (identifier == "clamp") return (m_clamp ? 1 : 0);
     else if (identifier == "method") return (int)m_method;
     else return 0.f;
@@ -172,6 +194,7 @@ SimpleCepstrum::setParameter(string identifier, float value)
 {
     if (identifier == "fmin") m_fmin = value;
     else if (identifier == "fmax") m_fmax = value;
+    else if (identifier == "histlen") m_histlen = value;
     else if (identifier == "clamp") m_clamp = (value > 0.5);
     else if (identifier == "method") m_method = Method(int(value + 0.5));
 }
@@ -224,7 +247,7 @@ SimpleCepstrum::getOutputDescriptors() const
     d.name = "Frequency corresponding to raw cepstral peak";
     d.description = "Return the frequency whose period corresponds to the quefrency with the maximum value within the specified range of the cepstrum";
     d.unit = "Hz";
-    m_rawOutput = n++;
+    m_pkOutput = n++;
     outputs.push_back(d);
 
     d.identifier = "variance";
@@ -248,6 +271,13 @@ SimpleCepstrum::getOutputDescriptors() const
     m_p2mOutput = n++;
     outputs.push_back(d);
 
+    d.identifier = "peak_to_rms";
+    d.name = "Peak-to-RMS distance";
+    d.unit = "";
+    d.description = "Return the difference between maximum and root mean square bin values within the specified range of the cepstrum";
+    m_p2rOutput = n++;
+    outputs.push_back(d);
+
     d.identifier = "cepstrum";
     d.name = "Cepstrum";
     d.unit = "";
@@ -261,7 +291,7 @@ SimpleCepstrum::getOutputDescriptors() const
     d.binCount = to - from + 1;
     for (int i = from; i <= to; ++i) {
         float freq = m_inputSampleRate / i;
-        char buffer[10];
+        char buffer[20];
         sprintf(buffer, "%.2f Hz", freq);
         d.binNames.push_back(buffer);
     }
@@ -271,8 +301,8 @@ SimpleCepstrum::getOutputDescriptors() const
     outputs.push_back(d);
 
     d.identifier = "am";
-    d.name = "Cepstrum bins relative to mean";
-    d.description = "The cepstrum bins within the specified range, expressed as a value relative to the mean bin value in the range, with values below the mean clamped to zero";
+    d.name = "Cepstrum bins relative to RMS";
+    d.description = "The cepstrum bins within the specified range, expressed as a value relative to the root mean square bin value in the range, with values below the RMS clamped to zero";
     m_amOutput = n++;
     outputs.push_back(d);
 
@@ -283,7 +313,7 @@ SimpleCepstrum::getOutputDescriptors() const
     d.binNames.clear();
     for (int i = 0; i < d.binCount; ++i) {
         float freq = (m_inputSampleRate / m_blockSize) * i;
-        char buffer[10];
+        char buffer[20];
         sprintf(buffer, "%.2f Hz", freq);
         d.binNames.push_back(buffer);
     }
@@ -313,12 +343,175 @@ SimpleCepstrum::initialise(size_t channels, size_t stepSize, size_t blockSize)
     m_stepSize = stepSize;
     m_blockSize = blockSize;
 
+    m_binFrom = int(m_inputSampleRate / m_fmax);
+    m_binTo = int(m_inputSampleRate / m_fmin); 
+
+    if (m_binTo >= m_blockSize / 2) {
+        m_binTo = m_blockSize / 2 - 1;
+    }
+
+    m_bins = (m_binTo - m_binFrom) + 1;
+
+    m_history = new double *[m_histlen];
+    for (int i = 0; i < m_histlen; ++i) {
+        m_history[i] = new double[m_bins];
+    }
+
+    reset();
+
     return true;
 }
 
 void
 SimpleCepstrum::reset()
 {
+    for (int i = 0; i < m_histlen; ++i) {
+        for (int j = 0; j < m_bins; ++j) {
+            m_history[i][j] = 0.0;
+        }
+    }
+}
+
+void
+SimpleCepstrum::filter(const double *cep, double *result)
+{
+    int hix = m_histlen - 1; // current history index
+
+    // roll back the history
+    if (m_histlen > 1) {
+        double *oldest = m_history[0];
+        for (int i = 1; i < m_histlen; ++i) {
+            m_history[i-1] = m_history[i];
+        }
+        // and stick this back in the newest spot, to recycle
+        m_history[hix] = oldest;
+    }
+
+    for (int i = 0; i < m_bins; ++i) {
+        m_history[hix][i] = cep[i + m_binFrom];
+    }
+
+    for (int i = 0; i < m_bins; ++i) {
+        double mean = 0.0;
+        for (int j = 0; j < m_histlen; ++j) {
+            mean += m_history[j][i];
+        }
+        mean /= m_histlen;
+        result[i] = mean;
+    }
+}
+   
+void
+SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
+{
+    int n = m_bins;
+
+    double maxval = 0.f;
+    int maxbin = 0;
+
+    for (int i = 0; i < n; ++i) {
+        if (data[i] > maxval) {
+            maxval = data[i];
+            maxbin = i + m_binFrom;
+        }
+    }
+
+    Feature rf;
+    if (maxbin > 0) {
+        rf.values.push_back(m_inputSampleRate / maxbin);
+    } else {
+        rf.values.push_back(0);
+    }
+    fs[m_pkOutput].push_back(rf);
+
+    double mean = 0;
+    for (int i = 0; i < n; ++i) {
+        mean += data[i];
+    }
+    mean /= n;
+
+    double rms = 0;
+    for (int i = 0; i < n; ++i) {
+        rms += data[i] * data[i];
+    }
+    rms = sqrt(rms / n);
+
+    double variance = 0;
+    for (int i = 0; i < n; ++i) {
+        double dev = fabs(data[i] - mean);
+        variance += dev * dev;
+    }
+    variance /= n;
+
+    Feature vf;
+    vf.values.push_back(variance);
+    fs[m_varOutput].push_back(vf);
+
+    Feature pf;
+    pf.values.push_back(maxval - mean);
+    fs[m_p2mOutput].push_back(pf);
+
+    Feature pr;
+    pr.values.push_back(maxval - rms);
+    fs[m_p2rOutput].push_back(pr);
+
+    Feature pv;
+    pv.values.push_back(maxval);
+    fs[m_pvOutput].push_back(pv);
+
+    Feature am;
+    for (int i = 0; i < n; ++i) {
+        if (data[i] < rms) am.values.push_back(0);
+        else am.values.push_back(data[i] - rms);
+    }
+    fs[m_amOutput].push_back(am);
+}
+
+void
+SimpleCepstrum::addEnvelopeOutputs(FeatureSet &fs, const float *const *inputBuffers, const double *cep)
+{
+    // Wipe the higher cepstral bins in order to calculate the
+    // envelope. This calculation uses the raw cepstrum, not the
+    // filtered values (because only values "in frequency range" are
+    // filtered).
+    int bs = m_blockSize;
+    int hs = m_blockSize/2 + 1;
+
+    double *ecep = new double[bs];
+    for (int i = 0; i < m_binFrom; ++i) {
+        ecep[i] = cep[i] / bs; 
+    }
+    for (int i = m_binFrom; i < bs; ++i) {
+        ecep[i] = 0;
+    }
+    ecep[0] /= 2;
+    ecep[m_binFrom-1] /= 2;
+
+    double *env = new double[bs];
+    double *io = new double[bs];
+    fft(bs, false, ecep, 0, env, io);
+
+    for (int i = 0; i < hs; ++i) {
+        env[i] = exp(env[i]);
+    }
+    Feature envf;
+    for (int i = 0; i < hs; ++i) {
+        envf.values.push_back(env[i]);
+    }
+    fs[m_envOutput].push_back(envf);
+
+    Feature es;
+    for (int i = 0; i < hs; ++i) {
+        double re = inputBuffers[0][i*2  ] / env[i];
+        double im = inputBuffers[0][i*2+1] / env[i];
+        double mag = sqrt(re*re + im*im);
+        es.values.push_back(mag);
+    }
+    fs[m_esOutput].push_back(es);
+
+    delete[] env;
+    delete[] ecep;
+    delete[] io;
 }
 
 SimpleCepstrum::FeatureSet
@@ -329,7 +522,7 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
     int bs = m_blockSize;
     int hs = m_blockSize/2 + 1;
 
-    double *cep = new double[bs];
+    double *rawcep = new double[bs];
     double *io = new double[bs];
 
     if (m_method != InverseComplex) {
@@ -341,15 +534,9 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
             double power =
                 inputBuffers[0][i*2  ] * inputBuffers[0][i*2  ] +
                 inputBuffers[0][i*2+1] * inputBuffers[0][i*2+1];
+            double mag = sqrt(power);
 
-            double lm;
-
-            if (m_method == ForwardPower) {
-                lm = log(power + 0.00000001);
-            } else {
-                double mag = sqrt(power);
-                lm = log(mag + 0.00000001);
-            }
+            double lm = log(mag + 0.00000001);
 
             switch (m_method) {
             case InverseSymmetric:
@@ -372,19 +559,19 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
         if (m_method == InverseSymmetric ||
             m_method == InverseAsymmetric) {
 
-            fft(bs, true, logmag, 0, cep, io);
+            fft(bs, true, logmag, 0, rawcep, io);
 
         } else {
 
-            fft(bs, false, logmag, 0, cep, io);
+            fft(bs, false, logmag, 0, rawcep, io);
 
             if (m_method == ForwardDifference) {
                 for (int i = 0; i < hs; ++i) {
-                    cep[i] = fabs(io[i]) - fabs(cep[i]);
+                    rawcep[i] = fabs(io[i]) - fabs(rawcep[i]);
                 }
             } else {
                 for (int i = 0; i < hs; ++i) {
-                    cep[i] = sqrt(cep[i]*cep[i] + io[i]*io[i]);
+                    rawcep[i] = sqrt(rawcep[i]*rawcep[i] + io[i]*io[i]);
                 }
             }
         }
@@ -409,7 +596,7 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
             }
         }
 
-        fft(bs, true, ri, ii, cep, io);
+        fft(bs, true, ri, ii, rawcep, io);
 
         delete[] ri;
         delete[] ii;
@@ -417,106 +604,28 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
 
     if (m_clamp) {
         for (int i = 0; i < bs; ++i) {
-            if (cep[i] < 0) cep[i] = 0;
+            if (rawcep[i] < 0) rawcep[i] = 0;
         }
     }
 
-    int from = int(m_inputSampleRate / m_fmax);
-    int to = int(m_inputSampleRate / m_fmin);
+    delete[] io;
 
-    if (to >= bs / 2) {
-        to = bs / 2 - 1;
-    }
+    double *latest = new double[m_bins];
+    filter(rawcep, latest);
+
+    int n = m_bins;
 
     Feature cf;
-    for (int i = from; i <= to; ++i) {
-        cf.values.push_back(cep[i]);
+    for (int i = 0; i < n; ++i) {
+        cf.values.push_back(latest[i]);
     }
     fs[m_cepOutput].push_back(cf);
 
-    float maxval = 0.f;
-    int maxbin = 0;
+    addStatisticalOutputs(fs, latest);
 
-    for (int i = from; i <= to; ++i) {
-        if (cep[i] > maxval) {
-            maxval = cep[i];
-            maxbin = i;
-        }
-    }
+    addEnvelopeOutputs(fs, inputBuffers, rawcep);
 
-    Feature rf;
-    if (maxbin > 0) {
-        rf.values.push_back(m_inputSampleRate / maxbin);
-    } else {
-        rf.values.push_back(0);
-    }
-    fs[m_rawOutput].push_back(rf);
-
-    float mean = 0;
-    for (int i = from; i <= to; ++i) {
-        mean += cep[i];
-    }
-    mean /= (to - from) + 1;
-
-    float variance = 0;
-    for (int i = from; i <= to; ++i) {
-        float dev = fabsf(cep[i] - mean);
-        variance += dev * dev;
-    }
-    variance /= (to - from) + 1;
-
-    Feature vf;
-    vf.values.push_back(variance);
-    fs[m_varOutput].push_back(vf);
-
-    Feature pf;
-    pf.values.push_back(maxval - mean);
-    fs[m_p2mOutput].push_back(pf);
-
-    Feature pv;
-    pv.values.push_back(maxval);
-    fs[m_pvOutput].push_back(pv);
-
-    Feature am;
-    for (int i = from; i <= to; ++i) {
-        if (cep[i] < mean) am.values.push_back(0);
-        else am.values.push_back(cep[i] - mean);
-    }
-    fs[m_amOutput].push_back(am);
-
-    // destructively wipe the higher cepstral bins in order to
-    // calculate the envelope
-    double *env = new double[bs];
-    cep[0] /= 2;
-    cep[from-1] /= 2;
-    for (int i = 0; i < from; ++i) {
-        cep[i] /= bs; 
-    }
-    for (int i = from; i < bs; ++i) {
-        cep[i] = 0;
-    }
-    fft(bs, false, cep, 0, env, io);
-    for (int i = 0; i < hs; ++i) {
-        env[i] = exp(env[i]);
-    }
-    Feature envf;
-    for (int i = 0; i < hs; ++i) {
-        envf.values.push_back(env[i]);
-    }
-    fs[m_envOutput].push_back(envf);
-
-    Feature es;
-    for (int i = 0; i < hs; ++i) {
-        double re = inputBuffers[0][i*2  ] / env[i];
-        double im = inputBuffers[0][i*2+1] / env[i];
-        double mag = sqrt(re*re + im*im);
-        es.values.push_back(mag);
-    }
-    fs[m_esOutput].push_back(es);
-
-    delete[] env;
-    delete[] io;
-    delete[] cep;
+    delete[] latest;
 
     return fs;
 }
