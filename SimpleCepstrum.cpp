@@ -1,4 +1,24 @@
 /* -*- c-basic-offset: 4 indent-tabs-mode: nil -*-  vi:set ts=8 sts=4 sw=4: */
+/*
+    Permission is hereby granted, free of charge, to any person
+    obtaining a copy of this software and associated documentation
+    files (the "Software"), to deal in the Software without
+    restriction, including without limitation the rights to use, copy,
+    modify, merge, publish, distribute, sublicense, and/or sell copies
+    of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be
+    included in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+    EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+    NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR
+    ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+    CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+    WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 #include "SimpleCepstrum.h"
 
@@ -59,8 +79,7 @@ SimpleCepstrum::getDescription() const
 string
 SimpleCepstrum::getMaker() const
 {
-    // Your name here
-    return "";
+    return "Chris Cannam";
 }
 
 int
@@ -74,11 +93,7 @@ SimpleCepstrum::getPluginVersion() const
 string
 SimpleCepstrum::getCopyright() const
 {
-    // This function is not ideally named.  It does not necessarily
-    // need to say who made the plugin -- getMaker does that -- but it
-    // should indicate the terms under which it is distributed.  For
-    // example, "Copyright (year). All Rights Reserved", or "GPL"
-    return "";
+    return "Freely redistributable (BSD license)";
 }
 
 SimpleCepstrum::InputDomain
@@ -226,9 +241,9 @@ SimpleCepstrum::getOutputDescriptors() const
 
     OutputDescriptor d;
 
-    d.identifier = "f0";
-    d.name = "Estimated fundamental frequency";
-    d.description = "";
+    d.identifier = "raw_cepstral_peak";
+    d.name = "Frequency corresponding to raw cepstral peak";
+    d.description = "Return the frequency whose period corresponds to the quefrency with the maximum value within the specified range of the cepstrum";
     d.unit = "Hz";
     d.hasFixedBinCount = true;
     d.binCount = 1;
@@ -238,15 +253,6 @@ SimpleCepstrum::getOutputDescriptors() const
     d.isQuantized = false;
     d.sampleType = OutputDescriptor::OneSamplePerStep;
     d.hasDuration = false;
-/*
-    m_f0Output = n++;
-    outputs.push_back(d);
-*/
-
-    d.identifier = "raw_cepstral_peak";
-    d.name = "Frequency corresponding to raw cepstral peak";
-    d.description = "Return the frequency whose period corresponds to the quefrency with the maximum value within the specified range of the cepstrum";
-    d.unit = "Hz";
     m_pkOutput = n++;
     outputs.push_back(d);
 
@@ -265,13 +271,6 @@ SimpleCepstrum::getOutputDescriptors() const
     m_pvOutput = n++;
     outputs.push_back(d);
 
-    d.identifier = "peak_to_mean";
-    d.name = "Peak-to-mean distance";
-    d.unit = "";
-    d.description = "Return the difference between maximum and mean bin values within the specified range of the cepstrum";
-    m_p2mOutput = n++;
-    outputs.push_back(d);
-
     d.identifier = "peak_to_rms";
     d.name = "Peak-to-RMS distance";
     d.unit = "";
@@ -280,16 +279,16 @@ SimpleCepstrum::getOutputDescriptors() const
     outputs.push_back(d);
 
     d.identifier = "peak_proportion";
-    d.name = "Peak proportion";
+    d.name = "Energy around peak";
     d.unit = "";
-    d.description = "Return the proportion of total energy found in the bins around the peak bin of the cepstrum (as far as the nearest local minima)";
+    d.description = "Return the proportion of total energy that is found in the bins around the peak bin (as far as the nearest local minima), within the specified range of the cepstrum";
     m_ppOutput = n++;
     outputs.push_back(d);
 
     d.identifier = "total";
     d.name = "Total energy";
     d.unit = "";
-    d.description = "Return the total energy found in all cepstrum bins within range";
+    d.description = "Return the total energy found in all bins within the specified range of the cepstrum";
     m_totOutput = n++;
     outputs.push_back(d);
 
@@ -326,7 +325,7 @@ SimpleCepstrum::getOutputDescriptors() const
     d.description = "Envelope calculated from the cepstral values below the specified minimum";
     d.binCount = m_blockSize/2 + 1;
     d.binNames.clear();
-    for (int i = 0; i < d.binCount; ++i) {
+    for (int i = 0; i < (int)d.binCount; ++i) {
         float freq = (m_inputSampleRate / m_blockSize) * i;
         char buffer[20];
         sprintf(buffer, "%.2f Hz", freq);
@@ -361,7 +360,7 @@ SimpleCepstrum::initialise(size_t channels, size_t stepSize, size_t blockSize)
     m_binFrom = int(m_inputSampleRate / m_fmax);
     m_binTo = int(m_inputSampleRate / m_fmin); 
 
-    if (m_binTo >= m_blockSize / 2) {
+    if (m_binTo >= (int)m_blockSize / 2) {
         m_binTo = m_blockSize / 2 - 1;
     }
 
@@ -466,19 +465,19 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
     double aroundPeak = 0.0;
     double peakProportion = 0.0;
     if (maxval > 0.0) {
-        aroundPeak += maxval * maxval;
+        aroundPeak += fabs(maxval);
         int i = maxbin - 1;
         while (i > 0 && data[i] <= data[i+1]) {
-            aroundPeak += data[i] * data[i];
+            aroundPeak += fabs(data[i]);
             --i;
         }
         i = maxbin + 1;
         while (i < n && data[i] <= data[i-1]) {
-            aroundPeak += data[i] * data[i];
+            aroundPeak += fabs(data[i]);
             ++i;
         }
     }
-    peakProportion = sqrt(aroundPeak) / sqrt(totsqr);
+    peakProportion = aroundPeak / sqrt(totsqr);
     Feature pp;
     pp.values.push_back(peakProportion);
     fs[m_ppOutput].push_back(pp);
@@ -486,10 +485,6 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
     Feature vf;
     vf.values.push_back(variance);
     fs[m_varOutput].push_back(vf);
-
-    Feature pf;
-    pf.values.push_back(maxval - mean);
-    fs[m_p2mOutput].push_back(pf);
 
     Feature pr;
     pr.values.push_back(maxval - rms);
@@ -529,6 +524,8 @@ SimpleCepstrum::addEnvelopeOutputs(FeatureSet &fs, const float *const *inputBuff
 
     double *env = new double[bs];
     double *io = new double[bs];
+
+    //!!! This is only right if the previous transform was an inverse one!
     fft(bs, false, ecep, 0, env, io);
 
     for (int i = 0; i < hs; ++i) {
@@ -666,6 +663,7 @@ SimpleCepstrum::process(const float *const *inputBuffers, Vamp::RealTime timesta
     addEnvelopeOutputs(fs, inputBuffers, rawcep);
 
     delete[] latest;
+    delete[] rawcep;
 
     return fs;
 }
