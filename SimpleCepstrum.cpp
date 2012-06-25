@@ -229,7 +229,7 @@ SimpleCepstrum::getOutputDescriptors() const
     d.identifier = "f0";
     d.name = "Estimated fundamental frequency";
     d.description = "";
-    d.unit = "";
+    d.unit = "Hz";
     d.hasFixedBinCount = true;
     d.binCount = 1;
     d.hasKnownExtents = true;
@@ -254,6 +254,7 @@ SimpleCepstrum::getOutputDescriptors() const
     d.name = "Variance of cepstral bins in range";
     d.unit = "";
     d.description = "Return the variance of bin values within the specified range of the cepstrum";
+    d.hasKnownExtents = false;
     m_varOutput = n++;
     outputs.push_back(d);
 
@@ -276,6 +277,20 @@ SimpleCepstrum::getOutputDescriptors() const
     d.unit = "";
     d.description = "Return the difference between maximum and root mean square bin values within the specified range of the cepstrum";
     m_p2rOutput = n++;
+    outputs.push_back(d);
+
+    d.identifier = "peak_proportion";
+    d.name = "Peak proportion";
+    d.unit = "";
+    d.description = "Return the proportion of total energy found in the bins around the peak bin of the cepstrum (as far as the nearest local minima)";
+    m_ppOutput = n++;
+    outputs.push_back(d);
+
+    d.identifier = "total";
+    d.name = "Total energy";
+    d.unit = "";
+    d.description = "Return the total energy found in all cepstrum bins within range";
+    m_totOutput = n++;
     outputs.push_back(d);
 
     d.identifier = "cepstrum";
@@ -406,35 +421,40 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
 {
     int n = m_bins;
 
-    double maxval = 0.f;
+    double maxval = 0.0;
     int maxbin = 0;
 
     for (int i = 0; i < n; ++i) {
         if (data[i] > maxval) {
             maxval = data[i];
-            maxbin = i + m_binFrom;
+            maxbin = i;
         }
     }
 
     Feature rf;
-    if (maxbin > 0) {
-        rf.values.push_back(m_inputSampleRate / maxbin);
+    if (maxval > 0.0) {
+        rf.values.push_back(m_inputSampleRate / (maxbin + m_binFrom));
     } else {
         rf.values.push_back(0);
     }
     fs[m_pkOutput].push_back(rf);
 
-    double mean = 0;
+    double total = 0;
     for (int i = 0; i < n; ++i) {
-        mean += data[i];
+        total += data[i];
     }
-    mean /= n;
 
-    double rms = 0;
+    Feature tot;
+    tot.values.push_back(total);
+    fs[m_totOutput].push_back(tot);
+
+    double mean = total / n;
+
+    double totsqr = 0;
     for (int i = 0; i < n; ++i) {
-        rms += data[i] * data[i];
+        totsqr += data[i] * data[i];
     }
-    rms = sqrt(rms / n);
+    double rms = sqrt(totsqr / n);
 
     double variance = 0;
     for (int i = 0; i < n; ++i) {
@@ -442,6 +462,26 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
         variance += dev * dev;
     }
     variance /= n;
+
+    double aroundPeak = 0.0;
+    double peakProportion = 0.0;
+    if (maxval > 0.0) {
+        aroundPeak += maxval * maxval;
+        int i = maxbin - 1;
+        while (i > 0 && data[i] <= data[i+1]) {
+            aroundPeak += data[i] * data[i];
+            --i;
+        }
+        i = maxbin + 1;
+        while (i < n && data[i] <= data[i-1]) {
+            aroundPeak += data[i] * data[i];
+            ++i;
+        }
+    }
+    peakProportion = sqrt(aroundPeak) / sqrt(totsqr);
+    Feature pp;
+    pp.values.push_back(peakProportion);
+    fs[m_ppOutput].push_back(pp);
 
     Feature vf;
     vf.values.push_back(variance);

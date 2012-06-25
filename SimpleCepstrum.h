@@ -71,6 +71,8 @@ protected:
     mutable int m_amOutput;
     mutable int m_envOutput;
     mutable int m_esOutput;
+    mutable int m_ppOutput;
+    mutable int m_totOutput;
 
     int m_binFrom;
     int m_binTo;
