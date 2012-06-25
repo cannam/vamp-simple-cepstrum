@@ -179,17 +179,6 @@ SimpleCepstrum::getParameterDescriptors() const
     d.valueNames.push_back("Forward difference");
     list.push_back(d);
 
-    d.identifier = "clamp";
-    d.name = "Clamp negative values in cepstrum at zero";
-    d.unit = "";
-    d.minValue = 0;
-    d.maxValue = 1;
-    d.defaultValue = 0;
-    d.isQuantized = true;
-    d.quantizeStep = 1;
-    d.valueNames.clear();
-    list.push_back(d);
-
     return list;
 }
 
@@ -199,7 +188,6 @@ SimpleCepstrum::getParameter(string identifier) const
     if (identifier == "fmin") return m_fmin;
     else if (identifier == "fmax") return m_fmax;
     else if (identifier == "histlen") return m_histlen;
-    else if (identifier == "clamp") return (m_clamp ? 1 : 0);
     else if (identifier == "method") return (int)m_method;
     else return 0.f;
 }
@@ -210,7 +198,6 @@ SimpleCepstrum::setParameter(string identifier, float value)
     if (identifier == "fmin") m_fmin = value;
     else if (identifier == "fmax") m_fmax = value;
     else if (identifier == "histlen") m_histlen = value;
-    else if (identifier == "clamp") m_clamp = (value > 0.5);
     else if (identifier == "method") m_method = Method(int(value + 0.5));
 }
 
@@ -265,7 +252,7 @@ SimpleCepstrum::getOutputDescriptors() const
     outputs.push_back(d);
 
     d.identifier = "peak";
-    d.name = "Peak value";
+    d.name = "Value at peak";
     d.unit = "";
     d.description = "Return the value found in the maximum-valued bin within the specified range of the cepstrum";
     m_pvOutput = n++;
@@ -450,8 +437,10 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
     double mean = total / n;
 
     double totsqr = 0;
+    double abstot = 0;
     for (int i = 0; i < n; ++i) {
         totsqr += data[i] * data[i];
+        abstot += fabs(data[i]);
     }
     double rms = sqrt(totsqr / n);
 
@@ -477,7 +466,7 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
             ++i;
         }
     }
-    peakProportion = aroundPeak / sqrt(totsqr);
+    peakProportion = aroundPeak / abstot;
     Feature pp;
     pp.values.push_back(peakProportion);
     fs[m_ppOutput].push_back(pp);
