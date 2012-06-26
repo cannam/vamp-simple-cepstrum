@@ -38,7 +38,8 @@ SimpleCepstrum::SimpleCepstrum(float inputSampleRate) :
     m_blockSize(1024),
     m_fmin(50),
     m_fmax(1000),
-    m_histlen(3),
+    m_histlen(1),
+    m_vflen(1),
     m_clamp(false),
     m_method(InverseSymmetric),
     m_binFrom(0),
@@ -159,9 +160,20 @@ SimpleCepstrum::getParameterDescriptors() const
     d.unit = "";
     d.minValue = 1;
     d.maxValue = 10;
-    d.defaultValue = 3;
+    d.defaultValue = 1;
     d.isQuantized = true;
     d.quantizeStep = 1;
+    list.push_back(d);
+
+    d.identifier = "vflen";
+    d.name = "Vertical filter length";
+    d.description = "";
+    d.unit = "";
+    d.minValue = 1;
+    d.maxValue = 11;
+    d.defaultValue = 1;
+    d.isQuantized = true;
+    d.quantizeStep = 2;
     list.push_back(d);
 
     d.identifier = "method";
@@ -179,6 +191,17 @@ SimpleCepstrum::getParameterDescriptors() const
     d.valueNames.push_back("Forward difference");
     list.push_back(d);
 
+    d.identifier = "clamp";
+    d.name = "Clamp negative values in cepstrum at zero";
+    d.unit = "";
+    d.minValue = 0;
+    d.maxValue = 1;
+    d.defaultValue = 0;
+    d.isQuantized = true;
+    d.quantizeStep = 1;
+    d.valueNames.clear();
+    list.push_back(d);
+
     return list;
 }
 
@@ -188,6 +211,8 @@ SimpleCepstrum::getParameter(string identifier) const
     if (identifier == "fmin") return m_fmin;
     else if (identifier == "fmax") return m_fmax;
     else if (identifier == "histlen") return m_histlen;
+    else if (identifier == "vflen") return m_vflen;
+    else if (identifier == "clamp") return (m_clamp ? 1 : 0);
     else if (identifier == "method") return (int)m_method;
     else return 0.f;
 }
@@ -198,6 +223,8 @@ SimpleCepstrum::setParameter(string identifier, float value)
     if (identifier == "fmin") m_fmin = value;
     else if (identifier == "fmax") m_fmax = value;
     else if (identifier == "histlen") m_histlen = value;
+    else if (identifier == "vflen") m_vflen = value;
+    else if (identifier == "clamp") m_clamp = (value > 0.5);
     else if (identifier == "method") m_method = Method(int(value + 0.5));
 }
 
@@ -389,7 +416,17 @@ SimpleCepstrum::filter(const double *cep, double *result)
     }
 
     for (int i = 0; i < m_bins; ++i) {
-        m_history[hix][i] = cep[i + m_binFrom];
+        double v = 0;
+        int n = 0;
+        // average according to the vertical filter length
+        for (int j = -m_vflen/2; j <= m_vflen/2; ++j) {
+            int ix = i + m_binFrom + j;
+            if (ix >= 0 && ix < m_blockSize) {
+                v += cep[ix];
+                ++n;
+            }
+        }
+        m_history[hix][i] = v / n;
     }
 
     for (int i = 0; i < m_bins; ++i) {
