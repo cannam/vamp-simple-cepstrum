@@ -92,6 +92,7 @@ protected:
     mutable int m_esOutput;
     mutable int m_ppOutput;
     mutable int m_totOutput;
+    mutable int m_pkoOutput;
 
     int m_binFrom;
     int m_binTo;

@@ -299,6 +299,13 @@ SimpleCepstrum::getOutputDescriptors() const
     m_ppOutput = n++;
     outputs.push_back(d);
 
+    d.identifier = "peak_to_second_peak";
+    d.name = "Peak to second-peak ratio";
+    d.unit = "";
+    d.description = "Return the ratio of the value found in the peak bin within the specified range of the cepstrum, to the value found in the next highest peak";
+    m_pkoOutput = n++;
+    outputs.push_back(d);
+
     d.identifier = "total";
     d.name = "Total energy";
     d.unit = "";
@@ -454,6 +461,17 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
         }
     }
 
+    double nextPeakVal = 0.0;
+
+    for (int i = 1; i+1 < n; ++i) {
+        if (data[i] > data[i-1] &&
+            data[i] > data[i+1] &&
+            i != maxbin &&
+            data[i] > nextPeakVal) {
+            nextPeakVal = data[i];
+        }
+    }
+
     Feature rf;
     if (maxval > 0.0) {
         rf.values.push_back(m_inputSampleRate / (maxbin + m_binFrom));
@@ -519,6 +537,14 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
     Feature pv;
     pv.values.push_back(maxval);
     fs[m_pvOutput].push_back(pv);
+
+    Feature pko;
+    if (nextPeakVal != 0.0) {
+        pko.values.push_back(maxval / nextPeakVal);
+    } else {
+        pko.values.push_back(0.0);
+    }
+    fs[m_pkoOutput].push_back(pko);
 
     Feature am;
     for (int i = 0; i < n; ++i) {
