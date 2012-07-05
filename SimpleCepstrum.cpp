@@ -38,7 +38,8 @@ SimpleCepstrum::SimpleCepstrum(float inputSampleRate) :
     m_blockSize(1024),
     m_fmin(50),
     m_fmax(1000),
-    m_histlen(3),
+    m_histlen(1),
+    m_vflen(1),
     m_clamp(false),
     m_method(InverseSymmetric),
     m_binFrom(0),
@@ -159,9 +160,20 @@ SimpleCepstrum::getParameterDescriptors() const
     d.unit = "";
     d.minValue = 1;
     d.maxValue = 10;
-    d.defaultValue = 3;
+    d.defaultValue = 1;
     d.isQuantized = true;
     d.quantizeStep = 1;
+    list.push_back(d);
+
+    d.identifier = "vflen";
+    d.name = "Vertical filter length";
+    d.description = "";
+    d.unit = "";
+    d.minValue = 1;
+    d.maxValue = 11;
+    d.defaultValue = 1;
+    d.isQuantized = true;
+    d.quantizeStep = 2;
     list.push_back(d);
 
     d.identifier = "method";
@@ -199,6 +211,7 @@ SimpleCepstrum::getParameter(string identifier) const
     if (identifier == "fmin") return m_fmin;
     else if (identifier == "fmax") return m_fmax;
     else if (identifier == "histlen") return m_histlen;
+    else if (identifier == "vflen") return m_vflen;
     else if (identifier == "clamp") return (m_clamp ? 1 : 0);
     else if (identifier == "method") return (int)m_method;
     else return 0.f;
@@ -210,6 +223,7 @@ SimpleCepstrum::setParameter(string identifier, float value)
     if (identifier == "fmin") m_fmin = value;
     else if (identifier == "fmax") m_fmax = value;
     else if (identifier == "histlen") m_histlen = value;
+    else if (identifier == "vflen") m_vflen = value;
     else if (identifier == "clamp") m_clamp = (value > 0.5);
     else if (identifier == "method") m_method = Method(int(value + 0.5));
 }
@@ -265,7 +279,7 @@ SimpleCepstrum::getOutputDescriptors() const
     outputs.push_back(d);
 
     d.identifier = "peak";
-    d.name = "Peak value";
+    d.name = "Value at peak";
     d.unit = "";
     d.description = "Return the value found in the maximum-valued bin within the specified range of the cepstrum";
     m_pvOutput = n++;
@@ -283,6 +297,13 @@ SimpleCepstrum::getOutputDescriptors() const
     d.unit = "";
     d.description = "Return the proportion of total energy that is found in the bins around the peak bin (as far as the nearest local minima), within the specified range of the cepstrum";
     m_ppOutput = n++;
+    outputs.push_back(d);
+
+    d.identifier = "peak_to_second_peak";
+    d.name = "Peak to second-peak ratio";
+    d.unit = "";
+    d.description = "Return the ratio of the value found in the peak bin within the specified range of the cepstrum, to the value found in the next highest peak";
+    m_pkoOutput = n++;
     outputs.push_back(d);
 
     d.identifier = "total";
@@ -402,7 +423,17 @@ SimpleCepstrum::filter(const double *cep, double *result)
     }
 
     for (int i = 0; i < m_bins; ++i) {
-        m_history[hix][i] = cep[i + m_binFrom];
+        double v = 0;
+        int n = 0;
+        // average according to the vertical filter length
+        for (int j = -m_vflen/2; j <= m_vflen/2; ++j) {
+            int ix = i + m_binFrom + j;
+            if (ix >= 0 && ix < m_blockSize) {
+                v += cep[ix];
+                ++n;
+            }
+        }
+        m_history[hix][i] = v / n;
     }
 
     for (int i = 0; i < m_bins; ++i) {
@@ -430,6 +461,17 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
         }
     }
 
+    double nextPeakVal = 0.0;
+
+    for (int i = 1; i+1 < n; ++i) {
+        if (data[i] > data[i-1] &&
+            data[i] > data[i+1] &&
+            i != maxbin &&
+            data[i] > nextPeakVal) {
+            nextPeakVal = data[i];
+        }
+    }
+
     Feature rf;
     if (maxval > 0.0) {
         rf.values.push_back(m_inputSampleRate / (maxbin + m_binFrom));
@@ -450,8 +492,10 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
     double mean = total / n;
 
     double totsqr = 0;
+    double abstot = 0;
     for (int i = 0; i < n; ++i) {
         totsqr += data[i] * data[i];
+        abstot += fabs(data[i]);
     }
     double rms = sqrt(totsqr / n);
 
@@ -477,7 +521,7 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
             ++i;
         }
     }
-    peakProportion = aroundPeak / sqrt(totsqr);
+    peakProportion = aroundPeak / abstot;
     Feature pp;
     pp.values.push_back(peakProportion);
     fs[m_ppOutput].push_back(pp);
@@ -493,6 +537,14 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
     Feature pv;
     pv.values.push_back(maxval);
     fs[m_pvOutput].push_back(pv);
+
+    Feature pko;
+    if (nextPeakVal != 0.0) {
+        pko.values.push_back(maxval / nextPeakVal);
+    } else {
+        pko.values.push_back(0.0);
+    }
+    fs[m_pkoOutput].push_back(pko);
 
     Feature am;
     for (int i = 0; i < n; ++i) {

@@ -20,16 +20,16 @@
     WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#ifndef _SIMPLE_CEPSTRUM_H_
-#define _SIMPLE_CEPSTRUM_H_
+#ifndef _CEPSTRUM_PITCH_H_
+#define _CEPSTRUM_PITCH_H_
 
 #include <vamp-sdk/Plugin.h>
 
-class SimpleCepstrum : public Vamp::Plugin
+class CepstrumPitchTracker : public Vamp::Plugin
 {
 public:
-    SimpleCepstrum(float inputSampleRate);
-    virtual ~SimpleCepstrum();
+    CepstrumPitchTracker(float inputSampleRate);
+    virtual ~CepstrumPitchTracker();
 
     std::string getIdentifier() const;
     std::string getName() const;
@@ -68,45 +68,68 @@ protected:
     size_t m_blockSize;
     float m_fmin;
     float m_fmax;
-    int m_histlen;
     int m_vflen;
-    bool m_clamp;
-
-    enum Method {
-        InverseSymmetric,
-        InverseAsymmetric,
-        InverseComplex,
-        ForwardMagnitude,
-        ForwardDifference
-    };
-
-    Method m_method;
-
-    mutable int m_pkOutput;
-    mutable int m_varOutput;
-    mutable int m_p2rOutput;
-    mutable int m_cepOutput;
-    mutable int m_pvOutput;
-    mutable int m_amOutput;
-    mutable int m_envOutput;
-    mutable int m_esOutput;
-    mutable int m_ppOutput;
-    mutable int m_totOutput;
-    mutable int m_pkoOutput;
 
     int m_binFrom;
     int m_binTo;
     int m_bins; // count of "interesting" bins, those returned in m_cepOutput
 
-    double **m_history;
-    
+    class Hypothesis {
+
+    public:
+        struct Estimate {
+            double freq;
+            Vamp::RealTime time;
+            double confidence;
+        };
+        typedef std::vector<Estimate> Estimates;
+
+        struct Note {
+            double freq;
+            Vamp::RealTime time;
+            Vamp::RealTime duration;
+        };
+        
+        Hypothesis();
+        ~Hypothesis();
+
+        enum State {
+            New,
+            Provisional,
+            Satisfied,
+            Rejected,
+            Expired
+        };
+
+        bool test(Estimate);
+
+        void advanceTime();
+
+        State getState();
+
+        int getPendingLength();
+        Estimates getAcceptedEstimates();
+        Note getAveragedNote();
+
+        void addFeatures(FeatureSet &fs);
+
+    private:
+        bool isWithinTolerance(Estimate);
+        bool isSatisfied();
+        double getMeanFrequency();
+
+        State m_state;
+        Estimates m_pending;
+        int m_age;
+    };
+
+    typedef std::vector<Hypothesis> Hypotheses;
+    Hypotheses m_possible;
+    Hypothesis m_accepted;
+
     void filter(const double *in, double *out);
     void fft(unsigned int n, bool inverse,
              double *ri, double *ii, double *ro, double *io);
-
-    void addStatisticalOutputs(FeatureSet &fs, const double *data);
-    void addEnvelopeOutputs(FeatureSet &fs, const float *const *inputBuffers,
-                            const double *raw);
 };
 
 #endif
