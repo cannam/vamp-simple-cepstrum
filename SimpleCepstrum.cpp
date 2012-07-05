@@ -257,7 +257,7 @@ SimpleCepstrum::getOutputDescriptors() const
 
     d.identifier = "raw_cepstral_peak";
     d.name = "Frequency corresponding to raw cepstral peak";
-    d.description = "Return the frequency whose period corresponds to the quefrency with the maximum value within the specified range of the cepstrum";
+    d.description = "Return the frequency whose period corresponds to the quefrency with the maximum bin value within the specified range of the cepstrum";
     d.unit = "Hz";
     d.hasFixedBinCount = true;
     d.binCount = 1;
@@ -268,6 +268,12 @@ SimpleCepstrum::getOutputDescriptors() const
     d.sampleType = OutputDescriptor::OneSamplePerStep;
     d.hasDuration = false;
     m_pkOutput = n++;
+    outputs.push_back(d);
+
+    d.identifier = "interpolated_peak";
+    d.name = "Interpolated peak frequency";
+    d.description = "Return the frequency whose period corresponds to the quefrency with the maximum bin value within the specified range of the cepstrum, using cubic interpolation to estimate the peak quefrency to finer than single bin resolution";
+    m_ipkOutput = n++;
     outputs.push_back(d);
 
     d.identifier = "variance";
@@ -445,6 +451,71 @@ SimpleCepstrum::filter(const double *cep, double *result)
         result[i] = mean;
     }
 }
+
+double
+SimpleCepstrum::cubicInterpolate(const double y[4], double x)
+{
+    double a0 = y[3] - y[2] - y[0] + y[1];
+    double a1 = y[0] - y[1] - a0;
+    double a2 = y[2] - y[0];
+    double a3 = y[1];
+    return
+        a0 * x * x * x +
+        a1 * x * x +
+        a2 * x +
+        a3;
+}
+
+double
+SimpleCepstrum::findInterpolatedPeak(const double *in, int maxbin)
+{
+    if (maxbin < 2 || maxbin > m_bins - 3) {
+        return maxbin;
+    }
+
+    double maxval = 0.0;
+    double maxidx = maxbin;
+
+    const int divisions = 10;
+    double y[4];
+
+    y[0] = in[maxbin-1];
+    y[1] = in[maxbin];
+    y[2] = in[maxbin+1];
+    y[3] = in[maxbin+2];
+    for (int i = 0; i < divisions; ++i) {
+        double probe = double(i) / double(divisions);
+        double value = cubicInterpolate(y, probe);
+        if (value > maxval) {
+            maxval = value; 
+            maxidx = maxbin + probe;
+        }
+    }
+
+    y[3] = y[2];
+    y[2] = y[1];
+    y[1] = y[0];
+    y[0] = in[maxbin-2];
+    for (int i = 0; i < divisions; ++i) {
+        double probe = double(i) / double(divisions);
+        double value = cubicInterpolate(y, probe);
+        if (value > maxval) {
+            maxval = value; 
+            maxidx = maxbin - 1 + probe;
+        }
+    }
+
+/*
+    std::cerr << "centre = " << maxbin << ": ["
+              << in[maxbin-2] << ","
+              << in[maxbin-1] << ","
+              << in[maxbin] << ","
+              << in[maxbin+1] << ","
+              << in[maxbin+2] << "] -> " << maxidx << std::endl;
+*/
+
+    return maxidx;
+}
    
 void
 SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
@@ -473,12 +544,17 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
     }
 
     Feature rf;
+    Feature irf;
     if (maxval > 0.0) {
         rf.values.push_back(m_inputSampleRate / (maxbin + m_binFrom));
+        double cimax = findInterpolatedPeak(data, maxbin);
+        irf.values.push_back(m_inputSampleRate / (cimax + m_binFrom));
     } else {
         rf.values.push_back(0);
+        irf.values.push_back(0);
     }
     fs[m_pkOutput].push_back(rf);
+    fs[m_ipkOutput].push_back(irf);
 
     double total = 0;
     for (int i = 0; i < n; ++i) {

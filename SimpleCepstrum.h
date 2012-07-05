@@ -83,6 +83,7 @@ protected:
     Method m_method;
 
     mutable int m_pkOutput;
+    mutable int m_ipkOutput;
     mutable int m_varOutput;
     mutable int m_p2rOutput;
     mutable int m_cepOutput;
@@ -101,6 +102,8 @@ protected:
     double **m_history;
     
     void filter(const double *in, double *out);
+    double cubicInterpolate(const double[4], double);
+    double findInterpolatedPeak(const double *in, int maxbin);
     void fft(unsigned int n, bool inverse,
              double *ri, double *ii, double *ro, double *io);
 
