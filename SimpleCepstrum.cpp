@@ -306,9 +306,9 @@ SimpleCepstrum::getOutputDescriptors() const
     outputs.push_back(d);
 
     d.identifier = "peak_to_second_peak";
-    d.name = "Peak to second-peak ratio";
+    d.name = "Peak to second-peak difference";
     d.unit = "";
-    d.description = "Return the ratio of the value found in the peak bin within the specified range of the cepstrum, to the value found in the next highest peak";
+    d.description = "Return the difference between the value found in the peak bin within the specified range of the cepstrum, and that found in the next highest peak";
     m_pkoOutput = n++;
     outputs.push_back(d);
 
@@ -616,7 +616,7 @@ SimpleCepstrum::addStatisticalOutputs(FeatureSet &fs, const double *data)
 
     Feature pko;
     if (nextPeakVal != 0.0) {
-        pko.values.push_back(maxval / nextPeakVal);
+        pko.values.push_back(maxval - nextPeakVal);
     } else {
         pko.values.push_back(0.0);
     }
