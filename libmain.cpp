@@ -26,10 +26,8 @@
 #include <vamp-sdk/PluginAdapter.h>
 
 #include "SimpleCepstrum.h"
-#include "CepstrumPitchTracker.h"
 
 static Vamp::PluginAdapter<SimpleCepstrum> cepPluginAdapter;
-static Vamp::PluginAdapter<CepstrumPitchTracker> cepitchPluginAdapter;
 
 const VampPluginDescriptor *
 vampGetPluginDescriptor(unsigned int version, unsigned int index)
@@ -38,7 +36,6 @@ vampGetPluginDescriptor(unsigned int version, unsigned int index)
 
     switch (index) {
     case  0: return cepPluginAdapter.getDescriptor();
-    case  1: return cepitchPluginAdapter.getDescriptor();
     default: return 0;
     }
 }

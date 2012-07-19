@@ -442,7 +442,7 @@ SimpleCepstrum::filter(const double *cep, double *result)
         // average according to the vertical filter length
         for (int j = -m_vflen/2; j <= m_vflen/2; ++j) {
             int ix = i + m_binFrom + j;
-            if (ix >= 0 && ix < m_blockSize) {
+            if (ix >= 0 && ix < (int)m_blockSize) {
                 v += cep[ix];
                 ++n;
             }
