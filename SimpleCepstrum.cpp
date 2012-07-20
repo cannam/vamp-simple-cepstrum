@@ -280,7 +280,7 @@ SimpleCepstrum::getOutputDescriptors() const
 
     d.identifier = "interpolated_peak";
     d.name = "Interpolated peak frequency";
-    d.description = "Return the frequency whose period corresponds to the quefrency with the maximum bin value within the specified range of the cepstrum, using cubic interpolation to estimate the peak quefrency to finer than single bin resolution";
+    d.description = "Return the frequency whose period corresponds to the quefrency with the maximum bin value within the specified range of the cepstrum, using parabolic interpolation to estimate the peak quefrency to finer than single bin resolution";
     m_ipkOutput = n++;
     outputs.push_back(d);
 
@@ -461,68 +461,29 @@ SimpleCepstrum::filter(const double *cep, double *result)
 }
 
 double
-SimpleCepstrum::cubicInterpolate(const double y[4], double x)
-{
-    double a0 = y[3] - y[2] - y[0] + y[1];
-    double a1 = y[0] - y[1] - a0;
-    double a2 = y[2] - y[0];
-    double a3 = y[1];
-    return
-        a0 * x * x * x +
-        a1 * x * x +
-        a2 * x +
-        a3;
-}
-
-double
 SimpleCepstrum::findInterpolatedPeak(const double *in, int maxbin)
 {
-    if (maxbin < 2 || maxbin > m_bins - 3) {
+    // after jos, 
+    // https://ccrma.stanford.edu/~jos/sasp/Quadratic_Interpolation_Spectral_Peaks.html
+
+    if (maxbin < 1 || maxbin > m_bins - 2) {
         return maxbin;
     }
 
-    double maxval = 0.0;
-    double maxidx = maxbin;
+    double alpha = in[maxbin-1];
+    double beta  = in[maxbin];
+    double gamma = in[maxbin+1];
 
-    const int divisions = 10;
-    double y[4];
+    double denom = (alpha - 2*beta + gamma);
 
-    y[0] = in[maxbin-1];
-    y[1] = in[maxbin];
-    y[2] = in[maxbin+1];
-    y[3] = in[maxbin+2];
-    for (int i = 0; i < divisions; ++i) {
-        double probe = double(i) / double(divisions);
-        double value = cubicInterpolate(y, probe);
-        if (value > maxval) {
-            maxval = value; 
-            maxidx = maxbin + probe;
-        }
+    if (denom == 0) {
+        // flat
+        return maxbin;
     }
 
-    y[3] = y[2];
-    y[2] = y[1];
-    y[1] = y[0];
-    y[0] = in[maxbin-2];
-    for (int i = 0; i < divisions; ++i) {
-        double probe = double(i) / double(divisions);
-        double value = cubicInterpolate(y, probe);
-        if (value > maxval) {
-            maxval = value; 
-            maxidx = maxbin - 1 + probe;
-        }
-    }
+    double p = ((alpha - gamma) / denom) / 2.0;
 
-/*
-    std::cerr << "centre = " << maxbin << ": ["
-              << in[maxbin-2] << ","
-              << in[maxbin-1] << ","
-              << in[maxbin] << ","
-              << in[maxbin+1] << ","
-              << in[maxbin+2] << "] -> " << maxidx << std::endl;
-*/
-
-    return maxidx;
+    return double(maxbin) + p;
 }
    
 void
