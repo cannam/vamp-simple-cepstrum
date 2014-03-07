@@ -104,7 +104,6 @@ protected:
     double **m_history;
     
     void filter(const double *in, double *out);
-    double cubicInterpolate(const double[4], double);
     double findInterpolatedPeak(const double *in, int maxbin);
     void addStatisticalOutputs(FeatureSet &fs, const double *data);
     void addEnvelopeOutputs(FeatureSet &fs, const float *const *inputBuffers,
