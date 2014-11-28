@@ -186,7 +186,8 @@ SimpleCepstrum::getParameterDescriptors() const
 
     d.identifier = "method";
     d.name = "Cepstrum transform method";
-    d.unit = "Method to use for calculating cepstrum, starting from the complex short-time Fourier transform of the input audio.\nInverse symmetric - Real part of inverse FFT of log magnitude spectrum, with frequencies above Nyquist reflecting those below it.\nInverse asymmetric - Real part of inverse FFT of log magnitude spectrum, with frequencies above Nyquist set to zero.\nInverse complex - Real part of inverse FFT of complex log spectrum.\nForward magnitude - Magnitude of forward FFT of log magnitude spectrum.\nForward difference - Difference between imaginary and real parts of forward FFT of log magnitude spectrum";
+    d.description = "Method to use for calculating cepstrum, starting from the complex short-time Fourier transform of the input audio.\nInverse symmetric - Real part of inverse FFT of log magnitude spectrum, with frequencies above Nyquist reflecting those below it.\nInverse asymmetric - Real part of inverse FFT of log magnitude spectrum, with frequencies above Nyquist set to zero.\nInverse complex - Real part of inverse FFT of complex log spectrum.\nForward magnitude - Magnitude of forward FFT of log magnitude spectrum.\nForward difference - Difference between imaginary and real parts of forward FFT of log magnitude spectrum";
+    d.unit = "";
     d.minValue = 0;
     d.maxValue = 4;
     d.defaultValue = 0;
@@ -201,7 +202,8 @@ SimpleCepstrum::getParameterDescriptors() const
 
     d.identifier = "clamp";
     d.name = "Clamp negative values in cepstrum at zero";
-    d.unit = "If set, no negative values will be returned; they will be replaced by zeroes";
+    d.description = "If set, no negative values will be returned; they will be replaced by zeroes";
+    d.unit = "";
     d.minValue = 0;
     d.maxValue = 1;
     d.defaultValue = 0;
