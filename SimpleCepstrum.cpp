@@ -144,7 +144,7 @@ SimpleCepstrum::getParameterDescriptors() const
 
     d.identifier = "fmin";
     d.name = "Minimum frequency";
-    d.description = "";
+    d.description = "Frequency whose period corresponds to the quefrency of the last cepstrum bin in range";
     d.unit = "Hz";
     d.minValue = m_inputSampleRate / m_blockSize;
     d.maxValue = m_inputSampleRate / 2;
@@ -154,7 +154,7 @@ SimpleCepstrum::getParameterDescriptors() const
 
     d.identifier = "fmax";
     d.name = "Maximum frequency";
-    d.description = "";
+    d.description = "Frequency whose period corresponds to the quefrency of the first cepstrum bin in range";
     d.unit = "Hz";
     d.minValue = m_inputSampleRate / m_blockSize;
     d.maxValue = m_inputSampleRate / 2;
@@ -164,7 +164,7 @@ SimpleCepstrum::getParameterDescriptors() const
 
     d.identifier = "histlen";
     d.name = "Mean filter history length";
-    d.description = "";
+    d.description = "Length of mean filter used for smoothing cepstrum across time bins";
     d.unit = "";
     d.minValue = 1;
     d.maxValue = 10;
@@ -175,7 +175,7 @@ SimpleCepstrum::getParameterDescriptors() const
 
     d.identifier = "vflen";
     d.name = "Vertical filter length";
-    d.description = "";
+    d.description = "Length of mean filter used for smoothing cepstrum across quefrency bins";
     d.unit = "";
     d.minValue = 1;
     d.maxValue = 11;
@@ -186,7 +186,7 @@ SimpleCepstrum::getParameterDescriptors() const
 
     d.identifier = "method";
     d.name = "Cepstrum transform method";
-    d.unit = "";
+    d.unit = "Method to use for calculating cepstrum, starting from the complex short-time Fourier transform of the input audio.\nInverse symmetric - Real part of inverse FFT of log magnitude spectrum, with frequencies above Nyquist reflecting those below it.\nInverse asymmetric - Real part of inverse FFT of log magnitude spectrum, with frequencies above Nyquist set to zero.\nInverse complex - Real part of inverse FFT of complex log spectrum.\nForward magnitude - Magnitude of forward FFT of log magnitude spectrum.\nForward difference - Difference between imaginary and real parts of forward FFT of log magnitude spectrum";
     d.minValue = 0;
     d.maxValue = 4;
     d.defaultValue = 0;
@@ -201,7 +201,7 @@ SimpleCepstrum::getParameterDescriptors() const
 
     d.identifier = "clamp";
     d.name = "Clamp negative values in cepstrum at zero";
-    d.unit = "";
+    d.unit = "If set, no negative values will be returned; they will be replaced by zeroes";
     d.minValue = 0;
     d.maxValue = 1;
     d.defaultValue = 0;
@@ -334,13 +334,19 @@ SimpleCepstrum::getOutputDescriptors() const
 
     int from = int(m_inputSampleRate / m_fmax);
     int to = int(m_inputSampleRate / m_fmin);
+    if (from >= (int)m_blockSize / 2) {
+        from = m_blockSize / 2 - 1;
+    }
     if (to >= (int)m_blockSize / 2) {
         to = m_blockSize / 2 - 1;
+    }
+    if (to < from) {
+        to = from;
     }
     d.binCount = to - from + 1;
     for (int i = from; i <= to; ++i) {
         float freq = m_inputSampleRate / i;
-        char buffer[20];
+        char buffer[50];
         sprintf(buffer, "%.2f Hz", freq);
         d.binNames.push_back(buffer);
     }
@@ -362,7 +368,7 @@ SimpleCepstrum::getOutputDescriptors() const
     d.binNames.clear();
     for (int i = 0; i < (int)d.binCount; ++i) {
         float freq = (m_inputSampleRate / m_blockSize) * i;
-        char buffer[20];
+        char buffer[50];
         sprintf(buffer, "%.2f Hz", freq);
         d.binNames.push_back(buffer);
     }
@@ -393,10 +399,16 @@ SimpleCepstrum::initialise(size_t channels, size_t stepSize, size_t blockSize)
     m_blockSize = blockSize;
 
     m_binFrom = int(m_inputSampleRate / m_fmax);
-    m_binTo = int(m_inputSampleRate / m_fmin); 
+    m_binTo = int(m_inputSampleRate / m_fmin);
 
+    if (m_binFrom >= (int)m_blockSize / 2) {
+        m_binFrom = m_blockSize / 2 - 1;
+    }
     if (m_binTo >= (int)m_blockSize / 2) {
         m_binTo = m_blockSize / 2 - 1;
+    }
+    if (m_binTo < m_binFrom) {
+        m_binTo = m_binFrom;
     }
 
     m_bins = (m_binTo - m_binFrom) + 1;
@@ -617,7 +629,9 @@ SimpleCepstrum::addEnvelopeOutputs(FeatureSet &fs, const float *const *inputBuff
         ecep[i] = 0;
     }
     ecep[0] /= 2;
-    ecep[m_binFrom-1] /= 2;
+    if (m_binFrom > 0) {
+        ecep[m_binFrom-1] /= 2;
+    }
 
     double *env = new double[bs];
     double *io = new double[bs];

@@ -1,8 +1,8 @@
 
-CFLAGS := -Wall -g -fPIC -I/usr/local/include
+CFLAGS := -Wall -g -fPIC
 CXXFLAGS := $(CFLAGS)
 
-LDFLAGS := -shared -Wl,-Bstatic -L/usr/local/lib -lvamp-sdk -Wl,-Bdynamic 
+LDFLAGS := -shared -Wl,-Bstatic -lvamp-sdk -Wl,-Bdynamic -Wl,-Bsymbolic -Wl,-z,defs -Wl,--version-script=vamp-plugin.map
 
 PLUGIN_EXT := .so
 

@@ -20,10 +20,10 @@ $(PLUGIN):	$(OBJECTS)
 		$(CXX) -o $@ $^ $(LDFLAGS)
 
 clean:		
-		rm $(OBJECTS)
+		rm -f $(OBJECTS)
 
 distclean:	clean
-		rm $(PLUGIN)
+		rm -f $(PLUGIN)
 
 libmain.o:	$(HEADERS) $(SOURCES)
 SimpleCepstrum.o:	$(HEADERS) $(SOURCES)
